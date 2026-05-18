@@ -144,53 +144,51 @@ class SpotTraderBase:
         raise NotImplementedError
 
     def analyze_pair(self, pair: str) -> Dict:
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Analyzing {pair}")
-        logger.info(f"{'='*60}")
         candles = self.get_klines(pair, 'D', 7)
         if not candles:
-            logger.warning(f"No candle data for {pair}")
+            logger.warning(f"{pair} | skip | reason=No candle data")
             return {'pair': pair, 'action': 'skip', 'reason': 'No data'}
+
         current_price = self.get_current_price(pair)
         if not current_price:
-            logger.warning(f"Could not get current price for {pair}")
+            logger.warning(f"{pair} | skip | reason=No current price")
             return {'pair': pair, 'action': 'skip', 'reason': 'No price'}
+
         analysis = self.strategy.analyze_candles(candles)
         analysis['pair'] = pair
         analysis['current_price'] = current_price
-        logger.info(f"Analysis: {json.dumps(analysis, indent=2)}")
+
         if pair in self.open_positions:
             entry_price = self.open_positions[pair]['entry_price']
             should_sell, reason = self.strategy.is_sell_signal(pair, entry_price, current_price, candles)
             if should_sell and Config.ENABLE_AUTO_TRADING:
                 quantity = self.open_positions[pair]['quantity']
                 success, result = self.place_sell_order(pair, quantity)
-                analysis['action'] = 'sell'
-                analysis['result'] = result
-                analysis['success'] = success
+                analysis.update({'action': 'sell', 'result': result, 'success': success, 'quantity': quantity, 'reason': reason})
             else:
-                analysis['action'] = 'hold'
-                analysis['reason'] = reason
+                analysis.update({'action': 'hold', 'reason': reason})
         else:
             should_buy, reason = self.strategy.is_buy_signal(current_price, candles, pair)
             if should_buy and Config.ENABLE_AUTO_TRADING:
                 buy_amount_usdt = self.php_to_usdt(Config.BUY_AMOUNT_PHP)
                 quantity = self.strategy.calculate_buy_quantity(buy_amount_usdt, current_price)
                 success, result = self.place_buy_order(pair, quantity)
-                analysis['action'] = 'buy'
-                analysis['quantity'] = quantity
-                analysis['result'] = result
-                analysis['success'] = success
+                analysis.update({'action': 'buy', 'quantity': quantity, 'result': result, 'success': success, 'reason': reason})
             else:
-                analysis['action'] = 'wait'
-                analysis['reason'] = reason
+                analysis.update({'action': 'wait', 'reason': reason})
+
+        action = analysis['action']
+        if action == 'buy':
+            logger.info(f"{pair} | BUY | qty={analysis.get('quantity', 0):.4f} | price={current_price:.2f} | reason={analysis.get('reason')}")
+        elif action == 'sell':
+            logger.info(f"{pair} | SELL | qty={analysis.get('quantity', 0):.4f} | price={current_price:.2f} | reason={analysis.get('reason')}")
+        else:
+            logger.info(f"{pair} | {action.upper()} | reason={analysis.get('reason')}")
+
         return analysis
 
     def run_trading_cycle(self, pairs: List[str]) -> List[Dict]:
-        logger.info(f"\n{'#'*60}")
-        logger.info(f"TRADING CYCLE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Mode: {self.mode.upper()}")
-        logger.info(f"{'#'*60}")
+        logger.info(f"Trading cycle start | mode={self.mode} | time={datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         results = []
         for pair in pairs:
             try:
@@ -198,9 +196,9 @@ class SpotTraderBase:
                 results.append(result)
                 time.sleep(0.5)
             except Exception as e:
-                logger.error(f"Error analyzing {pair}: {e}")
+                logger.error(f"{pair} | error | {e}")
                 results.append({'pair': pair, 'action': 'error', 'reason': str(e)})
-        logger.info(f"\nCycle Summary: {len(results)} pairs analyzed")
+
         self._log_summary(results)
         return results
 
@@ -209,16 +207,10 @@ class SpotTraderBase:
         sell_signals = [r for r in results if r.get('action') == 'sell']
         holds = [r for r in results if r.get('action') == 'hold']
         waits = [r for r in results if r.get('action') == 'wait']
-        logger.info(f"BUY signals: {len(buy_signals)}")
-        for b in buy_signals:
-            logger.info(f"  - {b['pair']}: qty={b.get('quantity', 'N/A')}")
-        logger.info(f"SELL signals: {len(sell_signals)}")
-        for s in sell_signals:
-            logger.info(f"  - {s['pair']}")
-        logger.info(f"HOLD positions: {len(holds)}")
-        for h in holds:
-            logger.info(f"  - {h['pair']}")
-        logger.info(f"WAIT (no signal): {len(waits)}")
+        logger.info(
+            f"Cycle summary | pairs={len(results)} | buys={len(buy_signals)} | sells={len(sell_signals)} | "
+            f"holds={len(holds)} | waits={len(waits)}"
+        )
 
     def get_portfolio_status(self) -> Dict:
         return {
@@ -229,20 +221,18 @@ class SpotTraderBase:
 
     def print_status(self):
         portfolio = self.get_portfolio_status()
-        logger.info(f"\n{'='*60}")
-        logger.info("PORTFOLIO STATUS")
-        logger.info(f"{'='*60}")
-        logger.info(f"Open Positions: {len(portfolio['open_positions'])}")
-        for pair, position in portfolio['open_positions'].items():
-            logger.info(f"  {pair}: {position['quantity']} @ {position['entry_price']}")
+        status = f"Portfolio | positions={len(portfolio['open_positions'])} | trades={portfolio['trade_history_count']}"
         if self.mode == 'demo' and hasattr(self, 'demo_account'):
-            logger.info(f"Demo Balance: {self.demo_account['balance_php']} PHP / {self.demo_account['balance_usdt']} USDT")
-        logger.info(f"Total Trades Executed: {portfolio['trade_history_count']}")
+            status += f" | balance={self.demo_account['balance_php']} PHP"
+        logger.info(status)
+
+        for pair, position in portfolio['open_positions'].items():
+            logger.info(f"{pair} | qty={position['quantity']} | entry={position['entry_price']}")
+
         if portfolio['last_trades']:
-            logger.info("Last 5 Trades:")
-            for trade in portfolio['last_trades']:
-                profit = ((trade['exit_price'] - trade['entry_price']) / trade['entry_price']) * 100
-                logger.info(f"  {trade['pair']}: Entry={trade['entry_price']}, Exit={trade['exit_price']}, Profit={profit:.2f}%")
+            last = portfolio['last_trades'][-1]
+            profit = ((last['exit_price'] - last['entry_price']) / last['entry_price']) * 100
+            logger.info(f"Last trade | {last['pair']} | profit={profit:.2f}%")
 
 
 class BybitSpotTrader(SpotTraderBase):

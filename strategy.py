@@ -43,8 +43,6 @@ class TradingStrategy:
         
         support = min(lows)
         resistance = max(highs)
-        
-        logger.info(f"Support: {support}, Resistance: {resistance}")
         return support, resistance
     
     def calculate_average_price(self, candles: List[Dict]) -> float:
@@ -85,8 +83,7 @@ class TradingStrategy:
         support_range = support_level * 1.02
         
         if current_price <= support_range and current_price < avg_price:
-            reason = f"Price {current_price} near support {support_level} (avg: {avg_price})"
-            logger.info(f"BUY SIGNAL for {pair}: {reason}")
+            reason = f"Price {current_price} near support {support_level:.2f}"
             return True, reason
         
         return False, f"No buy signal. Current: {current_price}, Support: {support_level}, Avg: {avg_price}"
@@ -124,12 +121,9 @@ class TradingStrategy:
         
         if profit_percent >= self.profit_target_percent:
             if current_price >= resistance_range:
-                reason = f"Profit {profit_percent:.2f}% >= Target {self.profit_target_percent}%, at resistance {resistance_level}"
-                logger.info(f"SELL SIGNAL for {pair}: {reason}")
+                reason = f"Profit {profit_percent:.2f}% >= Target {self.profit_target_percent}%"
                 return True, reason
-            else:
-                logger.debug(f"Profit target hit ({profit_percent:.2f}%) but not at resistance yet")
-                return True, f"Profit target hit: {profit_percent:.2f}% gain"
+            return True, f"Profit target hit: {profit_percent:.2f}% gain"
         
         return False, f"Profit: {profit_percent:.2f}% < Target {self.profit_target_percent}%"
     

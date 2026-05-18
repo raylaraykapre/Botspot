@@ -48,30 +48,20 @@ class TradingBotLauncher:
     def initialize(self):
         """Initialize the trading bot"""
         try:
-            logger.info("="*70)
-            logger.info("BYBIT SPOT TRADING BOT - INITIALIZATION")
-            logger.info("="*70)
-            
-            # Validate configuration
+            logger.info("Initializing trading bot")
             Config.validate_config()
-            logger.info(f"✓ Configuration validated")
-            logger.info(f"✓ Trading Mode: {Config.TRADING_MODE.upper()}")
-            logger.info(f"✓ Profit Target: {Config.PROFIT_TARGET_PERCENT}%")
-            logger.info(f"✓ Update Interval: {Config.UPDATE_INTERVAL_SECONDS}s")
+            logger.info(f"Config validated | mode={Config.TRADING_MODE.upper()} | interval={Config.UPDATE_INTERVAL_SECONDS}s")
             
-            # Initialize trader
             if Config.TRADING_MODE.lower() == 'demo':
                 self.trader = DemoSpotTrader()
-                logger.info(f"✓ Demo trader initialized with {Config.DEMO_STARTING_BALANCE_PHP} PHP starting balance")
+                logger.info(f"Demo trader initialized | balance={Config.DEMO_STARTING_BALANCE_PHP} PHP")
             else:
                 self.trader = BybitSpotTrader()
-                logger.info(f"✓ Bybit API connection established")
+                logger.info("Bybit API trader initialized")
             
-            # Build trading pairs list
             self._build_trading_pairs()
-            
-            logger.info(f"✓ Trading pairs configured: {', '.join(self.trading_pairs)}")
-            logger.info("✓ Bot initialized successfully!\n")
+            logger.info(f"Trading pairs: {', '.join(self.trading_pairs)}")
+            logger.info("Bot initialized successfully")
             
             return True
             
@@ -122,17 +112,9 @@ class TradingBotLauncher:
             return False
         
         self.running = True
-        
-        logger.info("="*70)
-        logger.info("BOT STARTED - Auto-trading enabled")
-        logger.info("="*70)
+        logger.info(f"Bot started | mode={Config.TRADING_MODE} | auto-trading={'ENABLED' if Config.ENABLE_AUTO_TRADING else 'DISABLED'}")
         logger.info(f"Start time: {datetime.now()}")
-        logger.info(f"Auto-trading: {'ENABLED' if Config.ENABLE_AUTO_TRADING else 'DISABLED (Demo mode)'}")
-        logger.info(f"Trading pairs: {', '.join(self.trading_pairs)}")
-        logger.info("\nPress Ctrl+C to stop the bot gracefully")
-        logger.info("="*70 + "\n")
         
-        # Main loop
         try:
             # Run initial cycle
             self.run_cycle()
@@ -142,7 +124,7 @@ class TradingBotLauncher:
                 self.run_cycle()
                 
         except KeyboardInterrupt:
-            logger.info("\nKeyboard interrupt received")
+            logger.info("Keyboard interrupt received")
         except Exception as e:
             logger.error(f"Unexpected error: {e}", exc_info=True)
         finally:
@@ -150,17 +132,9 @@ class TradingBotLauncher:
     
     def shutdown(self):
         """Shutdown the trading bot"""
-        logger.info("\n" + "="*70)
-        logger.info("BOT SHUTDOWN")
-        logger.info("="*70)
-        
         if self.trader:
             self.trader.print_status()
-        
-        logger.info("="*70)
-        logger.info("Bot stopped successfully")
-        logger.info(f"End time: {datetime.now()}")
-        logger.info("="*70)
+        logger.info(f"Bot stopped successfully | end={datetime.now()}")
 
 
 def main():
