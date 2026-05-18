@@ -12,7 +12,7 @@ from datetime import datetime
 import schedule
 
 from bot_config import Config
-from bybit_trader import BybitSpotTrader
+from bybit_trader import BybitSpotTrader, DemoSpotTrader
 
 # Setup logging
 logging.basicConfig(
@@ -61,8 +61,12 @@ class TradingBotLauncher:
             logger.info(f"✓ Update Interval: {Config.UPDATE_INTERVAL_SECONDS}s")
             
             # Initialize trader
-            self.trader = BybitSpotTrader(mode=Config.TRADING_MODE)
-            logger.info(f"✓ Bybit API connection established")
+            if Config.TRADING_MODE.lower() == 'demo':
+                self.trader = DemoSpotTrader()
+                logger.info(f"✓ Demo trader initialized with {Config.DEMO_STARTING_BALANCE_PHP} PHP starting balance")
+            else:
+                self.trader = BybitSpotTrader()
+                logger.info(f"✓ Bybit API connection established")
             
             # Build trading pairs list
             self._build_trading_pairs()
