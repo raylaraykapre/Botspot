@@ -5,10 +5,13 @@ Bybit Spot Trading Bot - Main Trading Engine
 import logging
 import time
 import json
+import hmac
+import hashlib
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-import requests
-from pybit.unified_trading import HTTP
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 from bot_config import Config
 from strategy import TradingStrategy
@@ -23,6 +26,48 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def http_get_json(url: str, params: Optional[Dict[str, str]] = None,
+                  headers: Optional[Dict[str, str]] = None,
+                  timeout: int = 10) -> Optional[Dict]:
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    request_headers = {'User-Agent': 'Python/urllib'}
+    if headers:
+        request_headers.update(headers)
+
+    req = Request(url, headers=request_headers)
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            payload = response.read().decode('utf-8')
+            return json.loads(payload)
+    except (HTTPError, URLError, ValueError) as e:
+        logger.warning(f"HTTP GET failed for {url}: {e}")
+        return None
+
+
+def http_post_json(url: str, payload: Dict, params: Optional[Dict[str, str]] = None,
+                   headers: Optional[Dict[str, str]] = None,
+                   timeout: int = 10) -> Optional[Dict]:
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    data = json.dumps(payload).encode('utf-8')
+    request_headers = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Python/urllib'
+    }
+    if headers:
+        request_headers.update(headers)
+
+    req = Request(url, data=data, headers=request_headers, method='POST')
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            payload = response.read().decode('utf-8')
+            return json.loads(payload)
+    except (HTTPError, URLError, ValueError) as e:
+        logger.warning(f"HTTP POST failed for {url}: {e}")
+        return None
 
 
 class SpotTraderBase:
@@ -49,13 +94,13 @@ class SpotTraderBase:
             params = {
                 'vs_currency': 'usd',
                 'order': 'market_cap_rank',
-                'per_page': 100,
-                'sparkline': False,
+                'per_page': '100',
+                'sparkline': 'false',
                 'price_change_percentage': '24h'
             }
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            data = http_get_json(url, params=params, timeout=10)
+            if not data:
+                raise ValueError("No data returned from CoinGecko")
             gainers = sorted(
                 [d for d in data if d.get('price_change_percentage_24h')],
                 key=lambda x: x['price_change_percentage_24h'],
@@ -201,7 +246,7 @@ class SpotTraderBase:
 
 
 class BybitSpotTrader(SpotTraderBase):
-    """Live Bybit spot trading implementation."""
+    """Live Bybit spot trading implementation using built-in HTTP."""
 
     def __init__(self):
         super().__init__(strategy=TradingStrategy(
@@ -209,125 +254,146 @@ class BybitSpotTrader(SpotTraderBase):
             lookback_days=Config.LOOKBACK_DAYS
         ), mode='real')
         creds = Config.get_api_credentials()
-        self.public_api_base = creds['url']
-        try:
-            self.client = HTTP(
-                testnet=creds['is_testnet'],
-                api_key=creds['api_key'],
-                api_secret=creds['api_secret']
-            )
-            logger.info("Connected to Bybit real API")
-        except Exception as e:
-            logger.error(f"Failed to connect to Bybit API: {e}")
-            raise
+        self.api_base = creds['url']
+        self.api_key = creds['api_key']
+        self.api_secret = creds['api_secret']
+        self.is_testnet = creds['is_testnet']
+
+        if not self.api_key or not self.api_secret:
+            raise ValueError("API credentials are required for real trading.")
+
+        logger.info(f"Using Bybit {'testnet' if self.is_testnet else 'mainnet'} API")
+
+    def _sign_params(self, params: Dict[str, str]) -> str:
+        sorted_items = sorted(params.items())
+        query_string = '&'.join(f"{k}={v}" for k, v in sorted_items)
+        return hmac.new(
+            self.api_secret.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+    def _build_auth_params(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        auth_params = {
+            'api_key': self.api_key,
+            'timestamp': str(int(time.time() * 1000)),
+            'recv_window': '5000'
+        }
+        if extra:
+            auth_params.update(extra)
+        auth_params['sign'] = self._sign_params(auth_params)
+        return auth_params
+
+    def _public_get(self, path: str, params: Optional[Dict[str, str]] = None) -> Optional[Dict]:
+        url = f"{self.api_base}{path}"
+        return http_get_json(url, params=params)
+
+    def _private_post(self, path: str, body: Dict[str, str]) -> Optional[Dict]:
+        url = f"{self.api_base}{path}"
+        auth_params = self._build_auth_params()
+        return http_post_json(url, payload=body, params=auth_params)
 
     def get_klines(self, pair: str, interval: str = 'D', limit: int = 7) -> List[Dict]:
-        try:
-            response = self.client.get_kline(
-                category="spot",
-                symbol=pair,
-                interval=interval,
-                limit=limit
-            )
-            if response['retCode'] != 0:
-                logger.error(f"Error fetching klines for {pair}: {response['retMsg']}")
-                return []
-            klines = response['result']['list']
-            klines.reverse()
-            candles = []
-            for kline in klines:
-                candles.append({
-                    'time': int(kline[0]),
-                    'open': float(kline[1]),
-                    'high': float(kline[2]),
-                    'low': float(kline[3]),
-                    'close': float(kline[4]),
-                    'volume': float(kline[5])
-                })
-            return candles
-        except Exception as e:
-            logger.error(f"Exception fetching klines for {pair}: {e}")
+        interval_map = {'D': '1D'}
+        query_interval = interval_map.get(interval, interval)
+        params = {
+            'category': 'spot',
+            'symbol': pair,
+            'interval': query_interval,
+            'limit': str(limit)
+        }
+        response = self._public_get('/v5/market/kline', params=params)
+        if not response or response.get('retCode', 0) != 0:
+            logger.error(f"Error fetching klines for {pair}: {response.get('retMsg') if response else 'no response'}")
             return []
 
+        klines = response['result']['list']
+        klines.reverse()
+        candles = []
+        for kline in klines:
+            candles.append({
+                'time': int(kline[0]),
+                'open': float(kline[1]),
+                'high': float(kline[2]),
+                'low': float(kline[3]),
+                'close': float(kline[4]),
+                'volume': float(kline[5])
+            })
+        return candles
+
     def get_current_price(self, pair: str) -> Optional[float]:
-        try:
-            response = self.client.get_tickers(
-                category="spot",
-                symbol=pair
-            )
-            if response['retCode'] != 0:
-                logger.error(f"Error fetching price for {pair}")
-                return None
-            ticker = response['result']['list'][0]
-            return float(ticker['lastPrice'])
-        except Exception as e:
-            logger.error(f"Exception fetching current price for {pair}: {e}")
+        params = {
+            'category': 'spot',
+            'symbol': pair
+        }
+        response = self._public_get('/v5/market/tickers', params=params)
+        if not response or response.get('retCode', 0) != 0:
+            logger.error(f"Error fetching price for {pair}: {response.get('retMsg') if response else 'no response'}")
             return None
 
+        ticker = response['result']['list'][0]
+        return float(ticker['lastPrice'])
+
     def place_buy_order(self, pair: str, quantity: float, price: Optional[float] = None) -> Tuple[bool, str]:
-        try:
-            order_type = "Market" if price is None else "Limit"
-            params = {
-                'category': 'spot',
-                'symbol': pair,
-                'side': 'Buy',
-                'orderType': order_type,
-                'qty': str(quantity),
-            }
-            if price:
-                params['price'] = str(price)
-            response = self.client.place_order(**params)
-            if response['retCode'] != 0:
-                error_msg = response['retMsg']
-                logger.error(f"Buy order failed for {pair}: {error_msg}")
-                return False, error_msg
-            order_id = response['result']['orderId']
-            logger.info(f"BUY order placed for {pair}: {quantity} @ {order_type} - Order ID: {order_id}")
-            self.open_positions[pair] = {
-                'entry_price': price or self.get_current_price(pair),
-                'quantity': quantity,
-                'order_id': order_id,
-                'time': datetime.now()
-            }
-            return True, order_id
-        except Exception as e:
-            logger.error(f"Exception placing buy order for {pair}: {e}")
-            return False, str(e)
+        order_type = 'Market' if price is None else 'Limit'
+        body = {
+            'category': 'spot',
+            'symbol': pair,
+            'side': 'Buy',
+            'orderType': order_type,
+            'qty': str(quantity)
+        }
+        if price:
+            body['price'] = str(price)
+
+        response = self._private_post('/v5/order/create', body)
+        if not response or response.get('retCode', 0) != 0:
+            error_msg = response.get('retMsg', 'no response') if response else 'request failed'
+            logger.error(f"Buy order failed for {pair}: {error_msg}")
+            return False, str(error_msg)
+
+        order_id = response['result'].get('orderId', 'unknown')
+        logger.info(f"BUY order placed for {pair}: {quantity} @ {order_type} - Order ID: {order_id}")
+        self.open_positions[pair] = {
+            'entry_price': price or self.get_current_price(pair),
+            'quantity': quantity,
+            'order_id': order_id,
+            'time': datetime.now()
+        }
+        return True, order_id
 
     def place_sell_order(self, pair: str, quantity: float, price: Optional[float] = None) -> Tuple[bool, str]:
-        try:
-            order_type = "Market" if price is None else "Limit"
-            params = {
-                'category': 'spot',
-                'symbol': pair,
-                'side': 'Sell',
-                'orderType': order_type,
-                'qty': str(quantity),
+        order_type = 'Market' if price is None else 'Limit'
+        body = {
+            'category': 'spot',
+            'symbol': pair,
+            'side': 'Sell',
+            'orderType': order_type,
+            'qty': str(quantity)
+        }
+        if price:
+            body['price'] = str(price)
+
+        response = self._private_post('/v5/order/create', body)
+        if not response or response.get('retCode', 0) != 0:
+            error_msg = response.get('retMsg', 'no response') if response else 'request failed'
+            logger.error(f"Sell order failed for {pair}: {error_msg}")
+            return False, str(error_msg)
+
+        order_id = response['result'].get('orderId', 'unknown')
+        logger.info(f"SELL order placed for {pair}: {quantity} @ {order_type} - Order ID: {order_id}")
+        if pair in self.open_positions:
+            trade_record = {
+                'pair': pair,
+                'entry_price': self.open_positions[pair].get('entry_price'),
+                'exit_price': price or self.get_current_price(pair),
+                'quantity': quantity,
+                'time': datetime.now(),
+                'profit': 0
             }
-            if price:
-                params['price'] = str(price)
-            response = self.client.place_order(**params)
-            if response['retCode'] != 0:
-                error_msg = response['retMsg']
-                logger.error(f"Sell order failed for {pair}: {error_msg}")
-                return False, error_msg
-            order_id = response['result']['orderId']
-            logger.info(f"SELL order placed for {pair}: {quantity} @ {order_type} - Order ID: {order_id}")
-            if pair in self.open_positions:
-                trade_record = {
-                    'pair': pair,
-                    'entry_price': self.open_positions[pair].get('entry_price'),
-                    'exit_price': price or self.get_current_price(pair),
-                    'quantity': quantity,
-                    'time': datetime.now(),
-                    'profit': 0
-                }
-                self.trade_history.append(trade_record)
-                del self.open_positions[pair]
-            return True, order_id
-        except Exception as e:
-            logger.error(f"Exception placing sell order for {pair}: {e}")
-            return False, str(e)
+            self.trade_history.append(trade_record)
+            del self.open_positions[pair]
+        return True, order_id
 
 
 class DemoSpotTrader(SpotTraderBase):
@@ -362,10 +428,9 @@ class DemoSpotTrader(SpotTraderBase):
         }
         headers = {'User-Agent': 'Mozilla/5.0'}
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=15)
-            data = response.json()
-            if data.get('retCode', 0) != 0:
-                logger.warning(f"Bybit public klines unavailable for {pair}: {data.get('retMsg')}")
+            data = http_get_json(url, params=params, headers=headers, timeout=15)
+            if not data or data.get('retCode', 0) != 0:
+                logger.warning(f"Bybit public klines unavailable for {pair}: {data.get('retMsg') if data else 'no response'}")
                 return self._get_coingecko_klines(pair, limit)
             klines = data['result']['list']
             klines.reverse()
@@ -395,9 +460,8 @@ class DemoSpotTrader(SpotTraderBase):
         url = f"https://api.coingecko.com/api/v3/coins/{symbol_map[pair]}/market_chart"
         params = {'vs_currency': 'usd', 'days': limit, 'interval': 'daily'}
         try:
-            response = requests.get(url, params=params, timeout=15)
-            data = response.json()
-            prices = data.get('prices', [])
+            data = http_get_json(url, params=params, timeout=15)
+            prices = data.get('prices', []) if data else []
             if not prices:
                 return []
             candles = []
@@ -425,10 +489,9 @@ class DemoSpotTrader(SpotTraderBase):
         params = {'category': 'spot', 'symbol': pair}
         headers = {'User-Agent': 'Mozilla/5.0'}
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=15)
-            data = response.json()
-            if data.get('retCode', 0) != 0:
-                logger.warning(f"Bybit public price unavailable for {pair}: {data.get('retMsg')}")
+            data = http_get_json(url, params=params, headers=headers, timeout=15)
+            if not data or data.get('retCode', 0) != 0:
+                logger.warning(f"Bybit public price unavailable for {pair}: {data.get('retMsg') if data else 'no response'}")
                 return self._get_coingecko_price(pair)
             ticker = data['result']['list'][0]
             return float(ticker['lastPrice'])
@@ -447,8 +510,9 @@ class DemoSpotTrader(SpotTraderBase):
         url = f"https://api.coingecko.com/api/v3/simple/price"
         params = {'ids': symbol_map[pair], 'vs_currencies': 'usd'}
         try:
-            response = requests.get(url, params=params, timeout=15)
-            data = response.json()
+            data = http_get_json(url, params=params, timeout=15)
+            if not data:
+                return None
             return float(data[symbol_map[pair]]['usd'])
         except Exception as e:
             logger.error(f"CoinGecko price fetch failed for {pair}: {e}")

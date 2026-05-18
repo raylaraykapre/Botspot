@@ -9,7 +9,6 @@ import time
 import logging
 import signal
 from datetime import datetime
-import schedule
 
 from bot_config import Config
 from bybit_trader import BybitSpotTrader, DemoSpotTrader
@@ -117,23 +116,12 @@ class TradingBotLauncher:
         except Exception as e:
             logger.error(f"Error during trading cycle: {e}", exc_info=True)
     
-    def schedule_tasks(self):
-        """Schedule recurring tasks"""
-        # Run trading cycle at regular intervals
-        schedule.every(Config.UPDATE_INTERVAL_SECONDS).seconds.do(self.run_cycle)
-        
-        # Print status every hour
-        schedule.every(1).hour.do(self.trader.print_status)
-        
-        logger.info(f"Scheduled trading cycle every {Config.UPDATE_INTERVAL_SECONDS}s")
-    
     def start(self):
         """Start the trading bot"""
         if not self.initialize():
             return False
         
         self.running = True
-        self.schedule_tasks()
         
         logger.info("="*70)
         logger.info("BOT STARTED - Auto-trading enabled")
@@ -149,10 +137,9 @@ class TradingBotLauncher:
             # Run initial cycle
             self.run_cycle()
             
-            # Run scheduled tasks
             while self.running:
-                schedule.run_pending()
-                time.sleep(1)
+                time.sleep(Config.UPDATE_INTERVAL_SECONDS)
+                self.run_cycle()
                 
         except KeyboardInterrupt:
             logger.info("\nKeyboard interrupt received")
