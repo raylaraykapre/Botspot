@@ -23,6 +23,8 @@ class Config:
     # Trading Configuration
     BUY_AMOUNT_PHP = float(os.getenv('BUY_AMOUNT_PHP', '5000'))
     PROFIT_TARGET_PERCENT = float(os.getenv('PROFIT_TARGET_PERCENT', '7'))
+    DEMO_STARTING_BALANCE_PHP = float(os.getenv('DEMO_STARTING_BALANCE_PHP', '100000'))
+    PHP_USD_RATE = float(os.getenv('PHP_USD_RATE', '0.018'))
     
     # Default Trading Pairs
     DEFAULT_PAIRS = [
@@ -68,7 +70,8 @@ class Config:
     @classmethod
     def validate_config(cls):
         """Validate that required configuration is set"""
-        creds = cls.get_api_credentials()
-        if not creds['api_key'] or not creds['api_secret']:
-            raise ValueError(f"API credentials not configured for {cls.TRADING_MODE} mode. Please set up .env file.")
+        if cls.TRADING_MODE == 'real':
+            creds = cls.get_api_credentials()
+            if not creds['api_key'] or not creds['api_secret']:
+                raise ValueError(f"API credentials not configured for {cls.TRADING_MODE} mode. Please set up .env file.")
         return True

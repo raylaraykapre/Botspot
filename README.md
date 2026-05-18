@@ -7,7 +7,7 @@ An intelligent, fully automated trading bot for Bybit spot market. Implements a 
 - **Strategy**: Buy Low, Sell High with 7-day chart analysis
 - **Target Profit**: 7% minimum gain before selling
 - **Trading Pairs**: BTCUSDT, ETHUSDT, SOLUSDT + Top 3 market gainers
-- **Modes**: Demo (testnet) and Real (mainnet) trading
+- **Modes**: Demo (local simulated orders using Bybit chart data) and Real (mainnet) trading
 - **Currency**: Philippine Peso (PHP) support for trade amounts
 - **Fully Automated**: Runs 24/7 analyzing and executing trades
 

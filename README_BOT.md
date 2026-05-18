@@ -17,7 +17,7 @@ An automated trading bot for Bybit spot market using a "Buy Low, Sell High" stra
 - Top 3 gainers from the market (auto-detected)
 
 🌐 **Modes:**
-- **Demo Mode**: Safe testing on Bybit Testnet with virtual money
+- **Demo Mode**: Local simulation engine using Bybit chart data for pricing and signals
 - **Real Mode**: Live trading on Bybit Mainnet
 
 💱 **Currency Support:**
@@ -150,6 +150,8 @@ Botspot/
 ## Usage Examples
 
 ### Demo Mode (Recommended First)
+In demo mode the bot runs a local simulation engine. It still uses live market data from Bybit charts for price and signal analysis, but all buy/sell orders are simulated locally and are not placed on the exchange.
+
 ```bash
 # .env configuration
 TRADING_MODE=demo

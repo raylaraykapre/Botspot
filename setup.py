@@ -65,6 +65,8 @@ def setup_environment():
     
     buy_amount = input("Buy amount in PHP (default: 5000): ").strip() or "5000"
     profit_target = input("Profit target % (default: 7): ").strip() or "7"
+    demo_balance = input("Demo starting balance in PHP (default: 100000): ").strip() or "100000"
+    php_usd_rate = input("PHP to USD conversion rate (default: 0.018): ").strip() or "0.018"
     update_interval = input("Update interval in seconds (default: 300): ").strip() or "300"
     
     enable_trading = input("Enable auto-trading? (y/n, default: n): ").strip().lower()
@@ -87,6 +89,8 @@ FIAT_CURRENCY=USDT
 # Trading Settings
 BUY_AMOUNT_PHP={buy_amount}
 PROFIT_TARGET_PERCENT={profit_target}
+DEMO_STARTING_BALANCE_PHP={demo_balance}
+PHP_USD_RATE={php_usd_rate}
 TRADING_PAIRS=BTCUSDT,ETHUSDT,SOLUSDT
 
 # Chart Analysis
