@@ -25,16 +25,14 @@ def setup_environment():
             return True
     
     print("\n" + "-"*70)
-    print("DEMO MODE CONFIGURATION (Testing on Bybit Testnet)")
+    print("DEMO MODE CONFIGURATION (Local demo trading using Bybit charts)")
     print("-"*70)
     
-    print("\nTo get Demo API keys:")
-    print("1. Go to: https://testnet.bybit.com/")
-    print("2. Register and create API key for testing")
-    print("\nEnter your Demo API credentials (or press Enter to skip):")
+    print("\nDemo mode does not require Bybit API keys.")
+    print("The engine uses local simulation and public chart data only.")
     
-    demo_api_key = input("Demo API Key (BYBIT_API_KEY_DEMO): ").strip()
-    demo_api_secret = input("Demo API Secret (BYBIT_API_SECRET_DEMO): ").strip()
+    demo_api_key = ''
+    demo_api_secret = ''
     
     print("\n" + "-"*70)
     print("REAL MODE CONFIGURATION (Live Trading)")
